@@ -1,13 +1,8 @@
-function uuidv4() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
-}
-
-function randomShortId() {
-  return Math.random().toString(16).substring(2, 10);
-}
+// SaTurn Gate - Worker Proxy + Config Generator
+const uuidv4 = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+  const r = Math.random() * 16 | 0;
+  return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+});
 
 export default {
   async fetch(request, env, ctx) {
@@ -17,115 +12,26 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
+      'Access-Control-Allow-Headers': 'Content-Type, Upgrade',
+      'Access-Control-Allow-Credentials': 'true'
     };
+
+    // Handle WebSocket upgrade for VLESS/Trojan proxy
+    const upgradeHeader = request.headers.get('Upgrade');
+    if (upgradeHeader && upgradeHeader.toLowerCase() === 'websocket') {
+      return handleWebSocket(request, env);
+    }
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // API: Generate Smart Config
+    // API: Generate config
     if (url.pathname === '/api/generate' && request.method === 'POST') {
       try {
         const body = await request.json();
-        
-        // Extract all params with smart defaults
-        const configType = body.type || 'vless';
-        const configAddress = body.address || '';
-        const configPort = parseInt(body.port) || 443;
-        const configSNI = body.sni || 'www.google.com';
-        const configUUID = body.uuid || uuidv4();
-        const configNetwork = body.network || 'ws';
-        const configSecurity = body.security || 'reality';
-        const configFingerprint = body.fp || 'chrome';
-        const configAlpn = body.alpn || '';
-        const configShortId = body.sid || randomShortId();
-        const configRemark = body.remark || 'SaTurn-' + configType.toUpperCase();
-        
-        // WS settings - Auto-fill with user domain
-        const configHost = body.host || userDomain;
-        const configPath = body.path || '/' + configUUID.substring(0, 8);
-        
-        // Reality public key (optional)
-        const configPublicKey = body.pbk || '';
-        
-        // SpiderX
-        const configSpiderX = body.spx || '/';
-        
-        // Build config based on type
-        let finalConfig = '';
-        
-        if (configType === 'vless') {
-          finalConfig = buildVlessLink({
-            uuid: configUUID,
-            address: configAddress,
-            port: configPort,
-            sni: configSNI,
-            network: configNetwork,
-            security: configSecurity,
-            fp: configFingerprint,
-            alpn: configAlpn,
-            sid: configShortId,
-            pbk: configPublicKey,
-            spx: configSpiderX,
-            host: configHost,
-            path: configPath,
-            remark: configRemark
-          });
-        } else if (configType === 'trojan') {
-          finalConfig = buildTrojanLink({
-            password: configUUID.substring(0, 16),
-            address: configAddress,
-            port: configPort,
-            sni: configSNI,
-            network: configNetwork,
-            security: configSecurity,
-            fp: configFingerprint,
-            alpn: configAlpn,
-            sid: configShortId,
-            pbk: configPublicKey,
-            spx: configSpiderX,
-            host: configHost,
-            path: configPath,
-            remark: configRemark
-          });
-        }
-        
-        // Build Xray server config
-        const serverConfig = buildXrayConfig({
-          type: configType,
-          uuid: configUUID,
-          port: configPort,
-          sni: configSNI,
-          network: configNetwork,
-          security: configSecurity,
-          host: configHost,
-          path: configPath,
-          shortId: configShortId
-        });
-        
-        // Save to KV
-        try {
-          await env.KV.put('config:' + configUUID, JSON.stringify({
-            type: configType,
-            address: configAddress,
-            port: configPort,
-            sni: configSNI,
-            uuid: configUUID,
-            network: configNetwork,
-            security: configSecurity,
-            host: configHost,
-            path: configPath,
-            created: Date.now()
-          }));
-        } catch (e) {}
-        
-        return new Response(JSON.stringify({
-          config: finalConfig,
-          serverConfig: serverConfig,
-          uuid: configUUID,
-          shortId: configShortId
-        }), {
+        const config = await generateConfig(body, userDomain, env);
+        return new Response(JSON.stringify(config), {
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       } catch (e) {
@@ -140,58 +46,8 @@ export default {
     if (url.pathname === '/api/scan' && request.method === 'POST') {
       try {
         const body = await request.json();
-        const scanPorts = body.ports || [443];
-        const range = body.range || 'cf';
-        
-        let ipList = [];
-        
-        if (range === 'cf') {
-          // Full Cloudflare IP ranges
-          const cfRanges = [
-            { base: '104.16.0.0', mask: 12 },
-            { base: '104.24.0.0', mask: 13 },
-            { base: '172.64.0.0', mask: 14 },
-            { base: '131.0.72.0', mask: 22 },
-            { base: '104.26.0.0', mask: 15 },
-            { base: '104.20.0.0', mask: 14 },
-            { base: '104.31.0.0', mask: 16 },
-            { base: '104.21.0.0', mask: 16 },
-            { base: '104.17.0.0', mask: 16 },
-            { base: '104.18.0.0', mask: 16 },
-            { base: '104.19.0.0', mask: 16 },
-            { base: '104.22.0.0', mask: 15 },
-            { base: '104.27.0.0', mask: 16 },
-            { base: '104.28.0.0', mask: 15 },
-            { base: '104.30.0.0', mask: 16 }
-          ];
-          
-          for (let i = 0; i < 30; i++) {
-            const randRange = cfRanges[Math.floor(Math.random() * cfRanges.length)];
-            const parts = randRange.base.split('.');
-            parts[3] = Math.floor(Math.random() * 254) + 1;
-            ipList.push(parts.join('.'));
-          }
-        } else if (range === 'custom' && body.customRange) {
-          const [baseIP, mask] = body.customRange.split('/');
-          const parts = baseIP.split('.');
-          const subnetMask = parseInt(mask) || 24;
-          const hosts = Math.pow(2, 32 - subnetMask);
-          
-          for (let i = 0; i < Math.min(20, hosts); i++) {
-            const newParts = [...parts];
-            newParts[3] = Math.floor(Math.random() * 254) + 1;
-            ipList.push(newParts.join('.'));
-          }
-        }
-        
-        const results = await scanIPs(ipList, scanPorts, env);
-        
-        return new Response(JSON.stringify({
-          status: 'done',
-          results: results,
-          total: results.length,
-          clean: results.filter(r => r.clean).length
-        }), {
+        const results = await scanIPs(body, env);
+        return new Response(JSON.stringify(results), {
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       } catch (e) {
@@ -240,100 +96,270 @@ export default {
       }
     }
 
-    // Serve static files
+    // Serve static files (panel)
     return env.ASSETS.fetch(request);
   }
 };
 
-// ============ Config Link Builders ============
+// ============ WebSocket Proxy Handler ============
+async function handleWebSocket(request, env) {
+  const url = new URL(request.url);
+  const path = url.pathname;
+  
+  // Get saved config for this path
+  let targetServer = null;
+  
+  try {
+    const { keys } = await env.KV.list({ prefix: 'config:' });
+    for (const key of keys) {
+      const config = await env.KV.get(key.name, 'json');
+      if (config && config.path === path) {
+        targetServer = config;
+        break;
+      }
+    }
+  } catch (e) {}
+  
+  // Default target - user should set their VPS IP
+  const target = targetServer?.address || env.TARGET_SERVER || 'your-vps-ip';
+  const targetPort = targetServer?.port || env.TARGET_PORT || '8080';
+  
+  // Create WebSocket pair
+  const [client, server] = Object.values(new WebSocketPair());
+  
+  // Connect to backend Xray server
+  const backendURL = `http://${target}:${targetPort}${path}`;
+  
+  server.accept();
+  
+  // Forward to backend
+  try {
+    const backendResponse = await fetch(backendURL, {
+      method: 'GET',
+      headers: {
+        'Upgrade': 'websocket',
+        'Connection': 'Upgrade',
+        'X-Forwarded-For': request.headers.get('CF-Connecting-IP') || '',
+        'X-Real-IP': request.headers.get('CF-Connecting-IP') || ''
+      }
+    });
+    
+    // If backend supports WebSocket
+    if (backendResponse.status === 101) {
+      // Create a relay between client and backend
+      ctx.waitUntil(relayWebSocket(server, backendResponse));
+    }
+  } catch (e) {
+    server.close(1011, 'Backend connection failed');
+  }
+  
+  return new Response(null, {
+    status: 101,
+    webSocket: client,
+    headers: {
+      'Access-Control-Allow-Origin': '*'
+    }
+  });
+}
+
+async function relayWebSocket(clientWS, backendResponse) {
+  // This is a simplified relay
+  // In production, use proper WebSocket relay
+  const backendWS = backendResponse.webSocket;
+  
+  if (!backendWS) return;
+  
+  backendWS.addEventListener('message', (event) => {
+    try {
+      clientWS.send(event.data);
+    } catch (e) {}
+  });
+  
+  backendWS.addEventListener('close', () => {
+    try { clientWS.close(); } catch (e) {}
+  });
+  
+  backendWS.addEventListener('error', () => {
+    try { clientWS.close(); } catch (e) {}
+  });
+}
+
+// ============ Config Generator ============
+async function generateConfig(body, userDomain, env) {
+  const {
+    type = 'vless',
+    address = userDomain,
+    port = 443,
+    sni = 'www.google.com',
+    uuid = '',
+    network = 'ws',
+    security = 'tls',
+    fp = 'chrome',
+    alpn = '',
+    sid = '',
+    host = '',
+    path = '',
+    remark = ''
+  } = body;
+  
+  const configUUID = uuid || uuidv4();
+  const configSid = sid || Math.random().toString(16).substring(2, 10);
+  const configHost = host || userDomain;
+  const configPath = path || '/' + configUUID.substring(0, 8);
+  const configRemark = remark || 'SaTurn-' + type.toUpperCase();
+  const configAddress = address || userDomain;
+  
+  let configLink = '';
+  
+  if (type === 'vless') {
+    configLink = buildVlessLink({
+      uuid: configUUID,
+      address: configAddress,
+      port,
+      sni,
+      network,
+      security,
+      fp,
+      alpn,
+      sid: configSid,
+      host: configHost,
+      path: configPath,
+      remark: configRemark
+    });
+  } else {
+    configLink = buildTrojanLink({
+      password: configUUID.substring(0, 16),
+      address: configAddress,
+      port,
+      sni,
+      network,
+      security,
+      fp,
+      alpn,
+      sid: configSid,
+      host: configHost,
+      path: configPath,
+      remark: configRemark
+    });
+  }
+  
+  const serverConfig = buildServerConfig({
+    type,
+    uuid: configUUID,
+    port,
+    sni,
+    network,
+    security,
+    host: configHost,
+    path: configPath,
+    shortId: configSid
+  });
+  
+  // Save config
+  try {
+    await env.KV.put('config:' + configUUID, JSON.stringify({
+      type,
+      address: configAddress,
+      port,
+      sni,
+      uuid: configUUID,
+      network,
+      security,
+      host: configHost,
+      path: configPath,
+      sid: configSid,
+      created: Date.now()
+    }));
+  } catch (e) {}
+  
+  return {
+    config: configLink,
+    serverConfig,
+    uuid: configUUID,
+    shortId: configSid,
+    path: configPath
+  };
+}
 
 function buildVlessLink(opts) {
-  let url = 'vless://' + opts.uuid + '@' + opts.address + ':' + opts.port;
+  let url = `vless://${opts.uuid}@${opts.address}:${opts.port}`;
+  const params = [
+    `encryption=none`,
+    `security=${opts.security}`,
+    `sni=${opts.sni}`,
+    `fp=${opts.fp}`,
+    `type=${opts.network}`
+  ];
   
-  let params = [];
-  
-  // Core params
-  params.push('encryption=none');
-  params.push('type=' + opts.network);
-  params.push('security=' + opts.security);
-  params.push('sni=' + opts.sni);
-  params.push('fp=' + opts.fp);
-  
-  // Reality params
   if (opts.security === 'reality') {
-    if (opts.pbk) params.push('pbk=' + opts.pbk);
-    params.push('sid=' + opts.sid);
-    params.push('spx=' + encodeURIComponent(opts.spx));
-    params.push('flow=xtls-rprx-vision');
+    params.push(`sid=${opts.sid}`);
+    params.push(`flow=xtls-rprx-vision`);
   }
   
-  // ALPN
-  if (opts.alpn) {
-    params.push('alpn=' + encodeURIComponent(opts.alpn));
-  }
+  if (opts.alpn) params.push(`alpn=${encodeURIComponent(opts.alpn)}`);
   
-  // WS params
   if (opts.network === 'ws') {
-    params.push('path=' + encodeURIComponent(opts.path));
-    params.push('host=' + opts.host);
+    params.push(`path=${encodeURIComponent(opts.path)}`);
+    params.push(`host=${opts.host}`);
   }
   
-  url += '?' + params.join('&');
-  url += '#' + encodeURIComponent(opts.remark);
-  
-  return url;
+  return url + '?' + params.join('&') + '#' + encodeURIComponent(opts.remark);
 }
 
 function buildTrojanLink(opts) {
-  let url = 'trojan://' + opts.password + '@' + opts.address + ':' + opts.port;
-  
-  let params = [];
-  
-  params.push('type=' + opts.network);
-  params.push('security=' + opts.security);
-  params.push('sni=' + opts.sni);
-  params.push('fp=' + opts.fp);
+  let url = `trojan://${opts.password}@${opts.address}:${opts.port}`;
+  const params = [
+    `security=${opts.security}`,
+    `sni=${opts.sni}`,
+    `fp=${opts.fp}`,
+    `type=${opts.network}`
+  ];
   
   if (opts.security === 'reality') {
-    if (opts.pbk) params.push('pbk=' + opts.pbk);
-    params.push('sid=' + opts.sid);
-    params.push('spx=' + encodeURIComponent(opts.spx));
-    params.push('flow=xtls-rprx-vision');
+    params.push(`sid=${opts.sid}`);
+    params.push(`flow=xtls-rprx-vision`);
   }
   
-  if (opts.alpn) {
-    params.push('alpn=' + encodeURIComponent(opts.alpn));
-  }
+  if (opts.alpn) params.push(`alpn=${encodeURIComponent(opts.alpn)}`);
   
   if (opts.network === 'ws') {
-    params.push('path=' + encodeURIComponent(opts.path));
-    params.push('host=' + opts.host);
+    params.push(`path=${encodeURIComponent(opts.path)}`);
+    params.push(`host=${opts.host}`);
   }
   
-  url += '?' + params.join('&');
-  url += '#' + encodeURIComponent(opts.remark);
-  
-  return url;
+  return url + '?' + params.join('&') + '#' + encodeURIComponent(opts.remark);
 }
 
-// ============ Xray Server Config Builder ============
-
-function buildXrayConfig(opts) {
+function buildServerConfig(opts) {
   const config = {
     log: { loglevel: 'warning' },
     inbounds: [{
+      port: 8080,
+      listen: '127.0.0.1',
+      protocol: 'vless',
+      tag: 'worker-in',
+      settings: {
+        clients: [],
+        decryption: 'none'
+      },
+      streamSettings: {
+        network: 'ws',
+        wsSettings: {
+          path: opts.path,
+          headers: { Host: opts.host }
+        }
+      },
+      sniffing: { enabled: true, destOverride: ['http', 'tls'] }
+    }, {
       port: opts.port,
       protocol: opts.type,
-      tag: 'SaTurn-inbound',
+      tag: 'direct-in',
       settings: {},
       streamSettings: {
-        network: opts.network,
+        network: 'tcp',
         security: opts.security
       },
-      sniffing: {
-        enabled: true,
-        destOverride: ['http', 'tls']
-      }
+      sniffing: { enabled: true, destOverride: ['http', 'tls'] }
     }],
     outbounds: [{
       protocol: 'freedom',
@@ -341,110 +367,92 @@ function buildXrayConfig(opts) {
     }]
   };
   
-  // Protocol-specific settings
   if (opts.type === 'vless') {
-    config.inbounds[0].settings = {
-      clients: [{
-        id: opts.uuid,
-        flow: 'xtls-rprx-vision'
-      }],
+    config.inbounds[0].settings.clients = [{ id: opts.uuid, flow: 'xtls-rprx-vision' }];
+    config.inbounds[1].settings = {
+      clients: [{ id: opts.uuid, flow: 'xtls-rprx-vision' }],
       decryption: 'none'
     };
-  } else if (opts.type === 'trojan') {
-    config.inbounds[0].settings = {
-      clients: [{
-        password: opts.uuid.substring(0, 16)
-      }]
+  } else {
+    config.inbounds[0].settings.clients = [{ password: opts.uuid.substring(0, 16) }];
+    config.inbounds[1].settings = {
+      clients: [{ password: opts.uuid.substring(0, 16) }]
     };
+    config.inbounds[0].protocol = 'trojan';
   }
   
-  // Network settings
-  if (opts.network === 'ws') {
-    config.inbounds[0].streamSettings.wsSettings = {
-      path: opts.path,
-      headers: {
-        Host: opts.host
-      }
-    };
-  } else if (opts.network === 'grpc') {
-    config.inbounds[0].streamSettings.grpcSettings = {
-      serviceName: opts.path.replace('/', '')
-    };
-  }
-  
-  // Security settings
   if (opts.security === 'reality') {
-    config.inbounds[0].streamSettings.realitySettings = {
+    config.inbounds[1].streamSettings.realitySettings = {
       dest: opts.sni + ':443',
       serverNames: [opts.sni],
       privateKey: 'YOUR_PRIVATE_KEY_HERE',
-      shortIds: [opts.shortId || '6ba85179']
+      shortIds: [opts.shortId]
     };
   } else if (opts.security === 'tls') {
-    config.inbounds[0].streamSettings.tlsSettings = {
-      serverName: opts.sni
+    config.inbounds[1].streamSettings.tlsSettings = {
+      serverName: opts.sni,
+      certificates: [{ certificateFile: '/etc/xray/fullchain.pem', keyFile: '/etc/xray/privkey.pem' }]
     };
   }
   
   return JSON.stringify(config, null, 2);
 }
 
-// ============ Smart IP Scanner ============
-
-async function scanIPs(ipList, ports, env) {
+// ============ IP Scanner ============
+async function scanIPs(body, env) {
+  const ports = body.ports || [443];
+  const range = body.range || 'cf';
+  
+  let ipList = [];
+  
+  const cfRanges = [
+    '104.16.0.0', '104.24.0.0', '172.64.0.0',
+    '131.0.72.0', '104.26.0.0', '104.20.0.0',
+    '104.31.0.0', '104.21.0.0', '104.17.0.0',
+    '104.18.0.0', '104.19.0.0', '104.22.0.0'
+  ];
+  
+  for (let i = 0; i < 30; i++) {
+    const base = cfRanges[Math.floor(Math.random() * cfRanges.length)];
+    const parts = base.split('.');
+    parts[3] = Math.floor(Math.random() * 254) + 1;
+    ipList.push(parts.join('.'));
+  }
+  
   const results = [];
-  const scannedIPs = new Set();
   
   for (const ip of ipList) {
-    if (scannedIPs.has(ip)) continue;
-    scannedIPs.add(ip);
-    
     for (const port of ports) {
       try {
         const start = Date.now();
-        
-        // Try HTTPS connection
-        const response = await fetch('https://' + ip + ':' + port, {
+        const response = await fetch(`https://${ip}:${port}`, {
           signal: AbortSignal.timeout(2500),
-          headers: {
-            'Host': 'speed.cloudflare.com',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-          }
+          headers: { 'Host': 'speed.cloudflare.com', 'User-Agent': 'Mozilla/5.0' }
         });
-        
         const latency = Date.now() - start;
-        const cfRay = response.headers.get('cf-ray');
-        const datacenter = cfRay ? cfRay.split('-')[1] : 'Unknown';
-        const server = response.headers.get('server') || '';
         
-        // Only accept if latency is reasonable
         if (latency < 1000) {
           const ipData = {
-            ip,
-            port,
-            latency,
-            datacenter,
-            server,
+            ip, port, latency,
+            datacenter: (response.headers.get('cf-ray') || '').split('-')[1] || 'Unknown',
             clean: latency < 250,
             status: 'open',
             scannedAt: Date.now()
           };
           
-          // Save to KV (best effort)
-          try {
-            await env.KV.put('scan:' + ip + ':' + port, JSON.stringify(ipData));
-          } catch (e) {}
-          
+          try { await env.KV.put('scan:' + ip + ':' + port, JSON.stringify(ipData)); } catch (e) {}
           results.push(ipData);
         }
-      } catch (e) {
-        // Timeout or connection refused - skip
-      }
+      } catch (e) {}
     }
   }
   
-  // Sort by latency (fastest first)
   results.sort((a, b) => a.latency - b.latency);
   
-  return results;
+  return {
+    status: 'done',
+    results,
+    total: results.length,
+    clean: results.filter(r => r.clean).length
+  };
 }
