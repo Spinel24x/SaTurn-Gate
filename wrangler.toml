@@ -1,11 +1,11 @@
-name = "vpn-panel"
-main = "src/worker.js"
+name = "Saturn-Gate"
+main = "worker.js"
 compatibility_date = "2024-01-01"
 
 # برای ذخیره نتایج اسکن
 [[kv_namespaces]]
 binding = "KV"
-id = "your-kv-id"  # این رو بعداً از داشبورد کلادفلیر می‌گیری
+id = "smart"  # این رو بعداً از داشبورد کلادفلیر می‌گیری
 
 # برای اسکن تدریجی
 [[durable_objects.bindings]]
