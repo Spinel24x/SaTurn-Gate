@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SaTurn Gate | پنل کانفیگ</title>
+    <title>SaTurn Gate | پنل حرفه‌ای کانفیگ Xray</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -33,7 +33,7 @@
         .header .subtitle { color: #666; font-size: 1.1em; }
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
             gap: 24px;
         }
         .card {
@@ -42,40 +42,37 @@
             padding: 28px;
             border: 1px solid rgba(255,255,255,0.06);
             backdrop-filter: blur(20px);
-            transition: all 0.3s;
         }
-        .card:hover { border-color: rgba(243, 156, 18, 0.3); }
         .card h2 {
-            font-size: 1.4em;
+            font-size: 1.3em;
             margin-bottom: 24px;
             color: #f39c12;
             display: flex;
             align-items: center;
             gap: 10px;
         }
-        .form-group { margin-bottom: 18px; }
+        .form-group { margin-bottom: 16px; }
         label {
             display: block;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             color: #999;
-            font-size: 0.9em;
+            font-size: 0.85em;
             font-weight: 500;
         }
         input, select {
             width: 100%;
-            padding: 14px 16px;
+            padding: 12px 14px;
             background: rgba(255,255,255,0.05);
             border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 12px;
+            border-radius: 10px;
             color: #fff;
-            font-size: 1em;
+            font-size: 0.95em;
             transition: all 0.3s;
         }
         input:focus, select:focus {
             outline: none;
             border-color: #f39c12;
             background: rgba(255,255,255,0.08);
-            box-shadow: 0 0 20px rgba(243, 156, 18, 0.15);
         }
         button {
             width: 100%;
@@ -88,12 +85,8 @@
             font-weight: 700;
             cursor: pointer;
             transition: all 0.3s;
-            letter-spacing: 0.5px;
         }
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(243, 156, 18, 0.3);
-        }
+        button:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(243, 156, 18, 0.3); }
         button:active { transform: scale(0.98); }
         button.secondary {
             background: rgba(255,255,255,0.05);
@@ -114,7 +107,7 @@
         }
         .config-text {
             width: 100%;
-            min-height: 80px;
+            min-height: 100px;
             background: rgba(0,0,0,0.4);
             color: #27ae60;
             border: 1px solid rgba(39, 174, 96, 0.3);
@@ -126,23 +119,21 @@
             line-height: 1.6;
             resize: vertical;
         }
-        .ip-list { max-height: 500px; overflow-y: auto; margin-top: 16px; }
+        .ip-list { max-height: 400px; overflow-y: auto; margin-top: 16px; }
         .ip-item {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 14px 16px;
+            padding: 12px 14px;
             background: rgba(255,255,255,0.03);
-            border-radius: 12px;
-            margin-bottom: 10px;
+            border-radius: 10px;
+            margin-bottom: 8px;
             border: 1px solid rgba(255,255,255,0.05);
-            transition: all 0.2s;
         }
         .ip-item:hover { background: rgba(255,255,255,0.06); }
-        .ip-info { display: flex; flex-direction: column; gap: 4px; }
-        .ip-address { font-family: monospace; font-size: 1em; font-weight: 600; color: #f39c12; }
-        .ip-details { font-size: 0.8em; color: #888; }
-        .status-open { color: #27ae60; }
+        .ip-info { display: flex; flex-direction: column; gap: 2px; }
+        .ip-address { font-family: monospace; font-size: 0.95em; font-weight: 600; color: #f39c12; }
+        .ip-details { font-size: 0.75em; color: #888; }
         .loading { text-align: center; padding: 30px; color: #888; }
         .spinner {
             border: 3px solid rgba(255,255,255,0.1);
@@ -172,31 +163,35 @@
         .btn-row button { flex: 1; }
         .badge {
             display: inline-block;
-            padding: 4px 10px;
+            padding: 3px 8px;
             border-radius: 20px;
-            font-size: 0.75em;
+            font-size: 0.7em;
             font-weight: 700;
         }
         .badge-clean { background: rgba(39, 174, 96, 0.2); color: #27ae60; }
         .badge-cf { background: rgba(243, 156, 18, 0.2); color: #f39c12; }
-        .stats { display: flex; gap: 15px; margin-top: 15px; }
+        .stats { display: flex; gap: 12px; margin-top: 12px; }
         .stat { flex: 1; text-align: center; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 10px; }
-        .stat-value { font-size: 1.5em; font-weight: 700; color: #f39c12; }
-        .stat-label { font-size: 0.8em; color: #888; margin-top: 4px; }
+        .stat-value { font-size: 1.3em; font-weight: 700; color: #f39c12; }
+        .stat-label { font-size: 0.75em; color: #888; margin-top: 4px; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+        .hint { font-size: 0.7em; color: #666; margin-top: 4px; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>🪐 SaTurn Gate</h1>
-            <p class="subtitle">اسکنر IP تمیز + تولید کانفیگ Xray | VLESS Reality + Trojan</p>
+            <p class="subtitle">اسکنر IP تمیز + هسته هوشمند تولید کانفیگ Xray | VLESS + Trojan + Reality + WS</p>
         </div>
 
         <div class="grid">
+            <!-- اسکنر -->
             <div class="card">
-                <h2>🔍 اسکنر IP تمیز کلادفلیر</h2>
+                <h2>🔍 اسکنر IP تمیز</h2>
                 <div class="form-group">
-                    <label>پورت‌ها</label>
+                    <label>پورت هدف</label>
                     <select id="scanPorts">
                         <option value="443">443 (HTTPS/Reality)</option>
                         <option value="8443">8443</option>
@@ -204,70 +199,150 @@
                         <option value="443,8443,2053,2083,2087,2096">همه پورت‌های CF</option>
                     </select>
                 </div>
-                <button onclick="startScan()">🚀 شروع اسکن هوشمند</button>
+                <button onclick="startScan()">🚀 شروع اسکن</button>
                 <div class="stats" id="scanStats" style="display:none;">
-                    <div class="stat"><div class="stat-value" id="totalOpen">0</div><div class="stat-label">IP باز</div></div>
-                    <div class="stat"><div class="stat-value" id="totalClean">0</div><div class="stat-label">IP تمیز</div></div>
+                    <div class="stat"><div class="stat-value" id="totalOpen">0</div><div class="stat-label">باز</div></div>
+                    <div class="stat"><div class="stat-value" id="totalClean">0</div><div class="stat-label">تمیز ⚡</div></div>
                 </div>
                 <div id="scanStatus" class="result-box" style="display:none;"></div>
                 <div id="scanResults" class="ip-list"></div>
             </div>
 
+            <!-- تولید کانفیگ -->
             <div class="card">
-                <h2>⚙️ تولید کانفیگ Xray</h2>
-                <div class="tabs">
-                    <div class="tab active" onclick="switchTab('vless')">VLESS Reality</div>
-                    <div class="tab" onclick="switchTab('trojan')">Trojan Reality</div>
+                <h2>⚙️ هسته تولید کانفیگ</h2>
+                
+                <div class="tabs" id="typeTabs">
+                    <div class="tab active" data-type="vless">VLESS</div>
+                    <div class="tab" data-type="trojan">Trojan</div>
                 </div>
+
                 <div class="form-group">
-                    <label>IP سرور</label>
-                    <input type="text" id="configIP" placeholder="از اسکنر انتخاب کنید یا دستی وارد کنید">
+                    <label>📝 Remark (نام کانفیگ)</label>
+                    <input type="text" id="remark" placeholder="مثال: SaTurn-IR">
                 </div>
+
                 <div class="form-group">
-                    <label>پورت</label>
-                    <input type="number" id="configPort" value="443">
+                    <label>🌐 Address (IP تمیز یا دامنه)</label>
+                    <input type="text" id="address" placeholder="از اسکنر انتخاب کنید یا دامنه Worker">
+                    <div class="hint">اگر خالی بماند = باید دستی وارد کنید</div>
                 </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>🔌 Port</label>
+                        <input type="number" id="port" value="443">
+                    </div>
+                    <div class="form-group">
+                        <label>🆔 UUID</label>
+                        <input type="text" id="uuid" placeholder="خالی = خودکار">
+                    </div>
+                </div>
+
                 <div class="form-group">
-                    <label>SNI</label>
-                    <input type="text" id="configSNI" value="www.google.com" placeholder="مثال: www.google.com">
+                    <label>🔒 SNI (دامنه فیلتر نشده)</label>
+                    <input type="text" id="sni" value="www.google.com" placeholder="www.google.com">
                 </div>
-                <div class="form-group">
-                    <label>UUID (اختیاری)</label>
-                    <input type="text" id="configUUID" placeholder="خالی = خودکار">
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>🌍 Network</label>
+                        <select id="network">
+                            <option value="ws">WebSocket (WS)</option>
+                            <option value="tcp">TCP</option>
+                            <option value="grpc">gRPC</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>🛡 Security</label>
+                        <select id="security">
+                            <option value="reality">Reality</option>
+                            <option value="tls">TLS</option>
+                        </select>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label>Short ID</label>
-                    <input type="text" id="configSID" value="6ba85179">
+
+                <div class="form-group" id="wsHostBox">
+                    <label>🏠 WS Host (دامنه Worker)</label>
+                    <input type="text" id="wsHost" placeholder="worker-name.workers.dev">
                 </div>
+
+                <div class="form-group" id="wsPathBox">
+                    <label>📁 WS Path</label>
+                    <input type="text" id="wsPath" placeholder="خالی = /UUID">
+                    <div class="hint">پیش‌فرض: /[UUID]</div>
+                </div>
+
+                <div class="form-row-3">
+                    <div class="form-group">
+                        <label>🖐 Fingerprint</label>
+                        <select id="fp">
+                            <option value="chrome">Chrome</option>
+                            <option value="firefox">Firefox</option>
+                            <option value="safari">Safari</option>
+                            <option value="edge">Edge</option>
+                            <option value="random">Random</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>📋 ALPN</label>
+                        <select id="alpn">
+                            <option value="h2,http/1.1">h2,http/1.1</option>
+                            <option value="http/1.1">http/1.1</option>
+                            <option value="h2">h2</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>🔑 Short ID</label>
+                        <input type="text" id="sid" value="6ba85179">
+                    </div>
+                </div>
+
                 <button onclick="generateConfig()">🎯 تولید کانفیگ</button>
+                
                 <div id="configResult" class="result-box" style="display:none;">
                     <textarea class="config-text" id="configOutput" readonly></textarea>
                     <div class="btn-row" style="margin-top:12px;">
                         <button onclick="copyConfig()" class="secondary">📋 کپی</button>
                         <button onclick="downloadConfig()" class="secondary">💾 دانلود</button>
                     </div>
+                    <details style="margin-top:12px;">
+                        <summary style="color:#f39c12;cursor:pointer;font-size:0.9em;">📝 کانفیگ سرور Xray</summary>
+                        <textarea class="config-text" id="serverConfigOutput" readonly style="margin-top:8px;color:#888;min-height:150px;"></textarea>
+                    </details>
                 </div>
             </div>
         </div>
 
+        <!-- IPهای ذخیره شده -->
         <div class="card" style="margin-top: 24px;">
-            <h2>📊 IPهای اسکن شده قبلی</h2>
+            <h2>📊 IPهای اسکن شده</h2>
             <div class="btn-row" style="margin-bottom: 20px; max-width: 400px;">
                 <button onclick="loadSavedIPs()" class="secondary">🔄 بارگذاری</button>
-                <button onclick="clearIPs()" class="danger">🗑 پاک کردن همه</button>
+                <button onclick="clearIPs()" class="danger">🗑 پاک کردن</button>
             </div>
             <div id="savedIPs" class="ip-list"></div>
         </div>
     </div>
 
     <script>
-        let activeTab = 'vless';
+        var activeType = 'vless';
 
-        function switchTab(type) {
-            activeTab = type;
-            document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
-            event.target.classList.add('active');
-        }
+        // Tab switching
+        document.querySelectorAll('#typeTabs .tab').forEach(function(tab) {
+            tab.addEventListener('click', function() {
+                document.querySelectorAll('#typeTabs .tab').forEach(function(t) { t.classList.remove('active'); });
+                this.classList.add('active');
+                activeType = this.getAttribute('data-type');
+            });
+        });
+
+        // Show/hide WS fields based on network
+        document.getElementById('network').addEventListener('change', function() {
+            var isWS = this.value === 'ws';
+            document.getElementById('wsHostBox').style.display = isWS ? 'block' : 'none';
+            document.getElementById('wsPathBox').style.display = isWS ? 'block' : 'none';
+        });
 
         async function startScan() {
             var scanStatus = document.getElementById('scanStatus');
@@ -276,7 +351,7 @@
             
             scanStatus.style.display = 'block';
             stats.style.display = 'flex';
-            scanStatus.innerHTML = '<div class="loading"><div class="spinner"></div><p>در حال اسکن IPهای کلادفلیر...</p><p style="font-size:0.8em;color:#666;">حدود ۱۵-۳۰ ثانیه طول میکشد</p></div>';
+            scanStatus.innerHTML = '<div class="loading"><div class="spinner"></div><p>در حال اسکن...</p></div>';
             scanResults.innerHTML = '';
             
             var ports = document.getElementById('scanPorts').value.split(',').map(function(p) { return parseInt(p.trim()); });
@@ -291,13 +366,13 @@
                 var data = await response.json();
                 scanStatus.style.display = 'none';
                 
-                document.getElementById('totalOpen').textContent = data.open || 0;
+                document.getElementById('totalOpen').textContent = data.total || 0;
                 document.getElementById('totalClean').textContent = data.clean || 0;
                 
                 if (data.results && data.results.length > 0) {
                     displayResults(data.results);
                 } else {
-                    scanResults.innerHTML = '<p style="color:#888;text-align:center;padding:20px;">هیچ IP بازی پیدا نشد. دوباره تلاش کنید.</p>';
+                    scanResults.innerHTML = '<p style="color:#888;text-align:center;padding:20px;">IP بازی پیدا نشد</p>';
                 }
             } catch (error) {
                 scanStatus.innerHTML = '<p style="color:#e74c3c;">✗ خطا: ' + error.message + '</p>';
@@ -305,71 +380,78 @@
         }
 
         function displayResults(ips) {
-            var scanResults = document.getElementById('scanResults');
             var html = '';
-            
             for (var i = 0; i < ips.length; i++) {
                 var ip = ips[i];
                 html += '<div class="ip-item">' +
                     '<div class="ip-info">' +
                     '<span class="ip-address">' + ip.ip + ':' + ip.port + '</span>' +
                     '<span class="ip-details">' +
-                    '<span class="badge ' + (ip.clean ? 'badge-clean' : 'badge-cf') + '">' + (ip.clean ? 'تمیز ⚡' : 'CF') + '</span> ' +
-                    'پینگ: ' + (ip.latency || '?') + 'ms | ' + (ip.datacenter || 'Unknown') +
+                    '<span class="badge ' + (ip.clean ? 'badge-clean' : 'badge-cf') + '">' + (ip.clean ? 'تمیز' : 'CF') + '</span> ' +
+                    'پینگ: ' + (ip.latency || '?') + 'ms' +
                     '</span>' +
                     '</div>' +
-                    '<div style="display:flex; gap:6px;">' +
-                    '<button onclick="useIP(\'' + ip.ip + '\', ' + ip.port + ')" class="secondary" style="padding:6px 10px;font-size:0.75em;">VLESS</button>' +
-                    '<button onclick="useIPForTrojan(\'' + ip.ip + '\', ' + ip.port + ')" class="secondary" style="padding:6px 10px;font-size:0.75em;">Trojan</button>' +
-                    '</div>' +
+                    '<button onclick="useIP(\'' + ip.ip + '\', ' + ip.port + ')" class="secondary" style="padding:6px 10px;font-size:0.75em;">📡 استفاده</button>' +
                     '</div>';
             }
-            
-            scanResults.innerHTML = html;
+            document.getElementById('scanResults').innerHTML = html;
         }
 
         function useIP(ip, port) {
-            document.getElementById('configIP').value = ip;
-            document.getElementById('configPort').value = port;
-            document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
-            document.querySelectorAll('.tab')[0].classList.add('active');
-            activeTab = 'vless';
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        function useIPForTrojan(ip, port) {
-            document.getElementById('configIP').value = ip;
-            document.getElementById('configPort').value = port;
-            document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
-            document.querySelectorAll('.tab')[1].classList.add('active');
-            activeTab = 'trojan';
+            document.getElementById('address').value = ip;
+            document.getElementById('port').value = port;
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         async function generateConfig() {
-            var ip = document.getElementById('configIP').value;
-            var port = document.getElementById('configPort').value;
-            var sni = document.getElementById('configSNI').value;
-            var uuid = document.getElementById('configUUID').value;
-            var sid = document.getElementById('configSID').value;
+            var address = document.getElementById('address').value;
+            var port = document.getElementById('port').value;
+            var sni = document.getElementById('sni').value;
+            var uuid = document.getElementById('uuid').value;
+            var network = document.getElementById('network').value;
+            var security = document.getElementById('security').value;
+            var fp = document.getElementById('fp').value;
+            var alpn = document.getElementById('alpn').value;
+            var sid = document.getElementById('sid').value;
+            var wsHost = document.getElementById('wsHost').value;
+            var wsPath = document.getElementById('wsPath').value;
+            var remark = document.getElementById('remark').value;
             
-            if (!ip || !port) {
-                alert('لطفاً IP و پورت را وارد کنید');
+            if (!address || !port) {
+                alert('⚠️ لطفاً Address و Port را وارد کنید');
                 return;
             }
             
-            var endpoint = activeTab === 'vless' ? '/api/generate-vless' : '/api/generate-trojan';
+            var payload = {
+                type: activeType,
+                address: address,
+                port: parseInt(port),
+                sni: sni,
+                uuid: uuid,
+                network: network,
+                security: security,
+                fp: fp,
+                alpn: alpn,
+                sid: sid,
+                remark: remark
+            };
+            
+            if (network === 'ws') {
+                payload.host = wsHost;
+                payload.path = wsPath;
+            }
             
             try {
-                var response = await fetch(endpoint, {
+                var response = await fetch('/api/generate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ip: ip, port: parseInt(port), sni: sni, uuid: uuid, sid: sid })
+                    body: JSON.stringify(payload)
                 });
                 
                 var data = await response.json();
                 document.getElementById('configResult').style.display = 'block';
                 document.getElementById('configOutput').value = data.config;
+                document.getElementById('serverConfigOutput').value = data.serverConfig || '';
             } catch (error) {
                 alert('خطا: ' + error.message);
             }
@@ -382,7 +464,7 @@
                 document.execCommand('copy');
                 alert('✅ کپی شد!');
             } catch(e) {
-                alert('کپی دستی کنید');
+                alert('دستی کپی کنید');
             }
         }
 
@@ -392,7 +474,7 @@
             var url = URL.createObjectURL(blob);
             var a = document.createElement('a');
             a.href = url;
-            a.download = 'saturn-config.txt';
+            a.download = 'saturn-config-' + Date.now() + '.txt';
             a.click();
         }
 
@@ -408,13 +490,13 @@
                         html += '<div class="ip-item">' +
                             '<div class="ip-info">' +
                             '<span class="ip-address">' + ip.ip + ':' + ip.port + '</span>' +
-                            '<span class="ip-details">پینگ: ' + (ip.latency || '?') + 'ms</span>' +
+                            '<span class="ip-details">پینگ: ' + (ip.latency || '?') + 'ms | ' + (ip.datacenter || '') + '</span>' +
                             '</div>' +
-                            '<button onclick="useIP(\'' + ip.ip + '\', ' + ip.port + ')" class="secondary" style="padding:6px 12px;font-size:0.8em;">استفاده</button>' +
+                            '<button onclick="useIP(\'' + ip.ip + '\', ' + ip.port + ')" class="secondary" style="padding:6px 12px;">استفاده</button>' +
                             '</div>';
                     }
                 } else {
-                    html = '<p style="color:#888;">هنوز هیچ IP ذخیره نشده است.</p>';
+                    html = '<p style="color:#888;">هیچ IP ذخیره نشده</p>';
                 }
                 
                 document.getElementById('savedIPs').innerHTML = html;
@@ -424,9 +506,9 @@
         }
 
         async function clearIPs() {
-            if (confirm('آیا مطمئن هستید؟')) {
+            if (confirm('پاک کردن همه؟')) {
                 await fetch('/api/clear-scans', { method: 'POST' });
-                document.getElementById('savedIPs').innerHTML = '<p style="color:#888;">همه IPها پاک شدند.</p>';
+                document.getElementById('savedIPs').innerHTML = '<p style="color:#888;">پاک شد</p>';
             }
         }
 
