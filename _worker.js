@@ -45,8 +45,7 @@ export default {
         return new Response(JSON.stringify({
           status: 'done',
           results: results,
-          total: ipList.length * scanPorts.length,
-          open: results.length,
+          total: results.length,
           clean: results.filter(r => r.clean).length
         }), {
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
@@ -79,52 +78,127 @@ export default {
       }
     }
 
-    // API: Generate VLESS
-    if (url.pathname === '/api/generate-vless' && request.method === 'POST') {
+    // API: Generate Config (Smart Core)
+    if (url.pathname === '/api/generate' && request.method === 'POST') {
       try {
-        const { ip, port, sni, uuid, sid } = await request.json();
-        const configUuid = uuid || uuidv4();
-        const shortId = sid || '6ba85179';
-        const configSNI = sni || 'www.google.com';
-        
-        const vlessConfig = 'vless://' + configUuid + '@' + ip + ':' + port +
-          '?encryption=none&security=reality&sni=' + configSNI +
-          '&fp=chrome&pbk=your-public-key&sid=' + shortId +
-          '&type=tcp&flow=xtls-rprx-vision&spx=%2F#SaTurn-VLESS';
-        
-        await env.KV.put('config:' + configUuid, JSON.stringify({
-          type: 'vless', ip, port, sni: configSNI, uuid: configUuid, sid: shortId, created: Date.now()
-        }));
-        
-        return new Response(JSON.stringify({ config: vlessConfig }), {
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
-      } catch (e) {
-        return new Response(JSON.stringify({ error: e.message }), {
-          status: 500,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
-      }
-    }
+        const body = await request.json();
+        const {
+          type,
+          address,
+          port,
+          sni,
+          uuid,
+          network,
+          security,
+          fp,
+          alpn,
+          pbk,
+          sid,
+          spx,
+          path,
+          host,
+          remark
+        } = body;
 
-    // API: Generate Trojan
-    if (url.pathname === '/api/generate-trojan' && request.method === 'POST') {
-      try {
-        const { ip, port, sni, uuid, sid } = await request.json();
-        const password = uuid || uuidv4().substring(0, 16);
-        const shortId = sid || '6ba85179';
+        // Generate UUID if empty
+        const configUuid = uuid || uuidv4();
+        
+        // Set defaults
+        const configAddress = address || '';
+        const configPort = port || 443;
         const configSNI = sni || 'www.google.com';
+        const configNetwork = network || 'ws';
+        const configSecurity = security || 'reality';
+        const configFingerprint = fp || 'chrome';
+        const configAlpn = alpn || 'h2,http/1.1';
+        const configPublicKey = pbk || '';
+        const configShortId = sid || '6ba85179';
+        const configSpiderX = spx || '/';
+        const configPath = path || '/' + configUuid;
+        const configHost = host || '';
+        const configRemark = remark || 'SaTurn-' + type.toUpperCase();
         
-        const trojanConfig = 'trojan://' + password + '@' + ip + ':' + port +
-          '?security=reality&sni=' + configSNI +
-          '&fp=chrome&pbk=your-public-key&sid=' + shortId +
-          '&type=tcp&flow=xtls-rprx-vision&spx=%2F#SaTurn-Trojan';
+        let finalConfig = '';
+        let serverConfig = '';
         
-        await env.KV.put('config:trojan:' + password, JSON.stringify({
-          type: 'trojan', ip, port, sni: configSNI, password, sid: shortId, created: Date.now()
+        // Generate based on type
+        if (type === 'vless') {
+          finalConfig = buildVlessConfig({
+            uuid: configUuid,
+            address: configAddress,
+            port: configPort,
+            sni: configSNI,
+            network: configNetwork,
+            security: configSecurity,
+            fp: configFingerprint,
+            alpn: configAlpn,
+            pbk: configPublicKey,
+            sid: configShortId,
+            spx: configSpiderX,
+            path: configPath,
+            host: configHost,
+            remark: configRemark
+          });
+          
+          serverConfig = buildXrayServerConfig({
+            protocol: 'vless',
+            uuid: configUuid,
+            port: configPort,
+            sni: configSNI,
+            network: configNetwork,
+            security: configSecurity,
+            path: configPath,
+            host: configHost,
+            shortId: configShortId
+          });
+        } else if (type === 'trojan') {
+          finalConfig = buildTrojanConfig({
+            password: configUuid.substring(0, 16),
+            address: configAddress,
+            port: configPort,
+            sni: configSNI,
+            network: configNetwork,
+            security: configSecurity,
+            fp: configFingerprint,
+            alpn: configAlpn,
+            pbk: configPublicKey,
+            sid: configShortId,
+            spx: configSpiderX,
+            path: configPath,
+            host: configHost,
+            remark: configRemark
+          });
+          
+          serverConfig = buildXrayServerConfig({
+            protocol: 'trojan',
+            password: configUuid.substring(0, 16),
+            port: configPort,
+            sni: configSNI,
+            network: configNetwork,
+            security: configSecurity,
+            path: configPath,
+            host: configHost,
+            shortId: configShortId
+          });
+        }
+        
+        // Save to KV
+        await env.KV.put('config:' + configUuid, JSON.stringify({
+          type,
+          address: configAddress,
+          port: configPort,
+          sni: configSNI,
+          uuid: configUuid,
+          network: configNetwork,
+          security: configSecurity,
+          created: Date.now()
         }));
         
-        return new Response(JSON.stringify({ config: trojanConfig }), {
+        return new Response(JSON.stringify({
+          config: finalConfig,
+          serverConfig: serverConfig,
+          uuid: configUuid
+        }), {
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       } catch (e) {
@@ -153,10 +227,118 @@ export default {
       }
     }
 
-    // Fallback: Serve static files (index.html)
+    // Fallback: Serve static files
     return env.ASSETS.fetch(request);
   }
 };
+
+// ============ Config Builders ============
+
+function buildVlessConfig(opts) {
+  let url = 'vless://' + opts.uuid + '@' + opts.address + ':' + opts.port;
+  
+  let params = [];
+  params.push('encryption=none');
+  params.push('security=' + opts.security);
+  params.push('sni=' + opts.sni);
+  params.push('fp=' + opts.fp);
+  params.push('type=' + opts.network);
+  
+  if (opts.security === 'reality') {
+    if (opts.pbk) params.push('pbk=' + opts.pbk);
+    params.push('sid=' + opts.sid);
+    params.push('spx=' + encodeURIComponent(opts.spx));
+  }
+  
+  if (opts.alpn) params.push('alpn=' + encodeURIComponent(opts.alpn));
+  
+  if (opts.network === 'ws') {
+    if (opts.host) params.push('host=' + opts.host);
+    params.push('path=' + encodeURIComponent(opts.path));
+  }
+  
+  url += '?' + params.join('&');
+  url += '#' + encodeURIComponent(opts.remark);
+  
+  return url;
+}
+
+function buildTrojanConfig(opts) {
+  let url = 'trojan://' + opts.password + '@' + opts.address + ':' + opts.port;
+  
+  let params = [];
+  params.push('security=' + opts.security);
+  params.push('sni=' + opts.sni);
+  params.push('fp=' + opts.fp);
+  params.push('type=' + opts.network);
+  
+  if (opts.security === 'reality') {
+    if (opts.pbk) params.push('pbk=' + opts.pbk);
+    params.push('sid=' + opts.sid);
+    params.push('spx=' + encodeURIComponent(opts.spx));
+  }
+  
+  if (opts.alpn) params.push('alpn=' + encodeURIComponent(opts.alpn));
+  
+  if (opts.network === 'ws') {
+    if (opts.host) params.push('host=' + opts.host);
+    params.push('path=' + encodeURIComponent(opts.path));
+  }
+  
+  url += '?' + params.join('&');
+  url += '#' + encodeURIComponent(opts.remark);
+  
+  return url;
+}
+
+function buildXrayServerConfig(opts) {
+  const config = {
+    inbounds: [{
+      port: opts.port,
+      protocol: opts.protocol,
+      settings: {},
+      streamSettings: {
+        network: opts.network,
+        security: opts.security
+      }
+    }]
+  };
+  
+  if (opts.protocol === 'vless') {
+    config.inbounds[0].settings = {
+      clients: [{ id: opts.uuid, flow: 'xtls-rprx-vision' }],
+      decryption: 'none'
+    };
+  } else if (opts.protocol === 'trojan') {
+    config.inbounds[0].settings = {
+      clients: [{ password: opts.password }]
+    };
+  }
+  
+  if (opts.network === 'ws') {
+    config.inbounds[0].streamSettings.wsSettings = {
+      path: opts.path
+    };
+    if (opts.host) {
+      config.inbounds[0].streamSettings.wsSettings.headers = {
+        Host: opts.host
+      };
+    }
+  }
+  
+  if (opts.security === 'reality') {
+    config.inbounds[0].streamSettings.realitySettings = {
+      dest: opts.sni + ':443',
+      serverNames: [opts.sni],
+      privateKey: 'YOUR_PRIVATE_KEY_HERE',
+      shortIds: [opts.shortId || '6ba85179']
+    };
+  }
+  
+  return JSON.stringify(config, null, 2);
+}
+
+// ============ IP Scanner ============
 
 async function scanIPs(ipList, ports, env) {
   const results = [];
