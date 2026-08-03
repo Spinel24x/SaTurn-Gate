@@ -1,6 +1,3 @@
-// SaTurn Gate - CF Worker Edge Proxy
-// نیاز به VPS نداره - Worker خودش پروکسیه
-
 const uuidv4 = () => {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
     const r = Math.random() * 16 | 0;
@@ -15,41 +12,20 @@ export default {
     
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, CONNECT',
-      'Access-Control-Allow-Headers': '*',
-      'Access-Control-Allow-Credentials': 'true'
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type'
     };
-
-    // Handle CONNECT method for direct proxy
-    if (request.method === 'CONNECT') {
-      return handleConnect(request);
-    }
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // API: Generate simple VLESS config
+    // ============ API: Generate VLESS ============
     if (url.pathname === '/api/generate-vless' && request.method === 'POST') {
       try {
         const body = await request.json();
-        const uuid = body.uuid || uuidv4();
-        const address = body.address || userDomain;
-        const port = body.port || 443;
-        const sni = body.sni || 'www.google.com';
-        const remark = body.remark || 'SaTurn-VLESS';
-        
-        // VLESS WS config using Worker as proxy
-        const config = `vless://${uuid}@${address}:${port}?encryption=none&security=tls&sni=${sni}&fp=chrome&type=ws&path=/ws&host=${address}#${encodeURIComponent(remark)}`;
-        
-        // Save to KV
-        try {
-          await env.KV.put('user:' + uuid, JSON.stringify({
-            uuid, address, port, sni, remark, created: Date.now()
-          }));
-        } catch (e) {}
-        
-        return new Response(JSON.stringify({ config, uuid }), {
+        const config = await generateVLESS(body, userDomain, env);
+        return new Response(JSON.stringify(config), {
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       } catch (e) {
@@ -59,25 +35,12 @@ export default {
       }
     }
 
-    // API: Generate simple Trojan config
+    // ============ API: Generate Trojan ============
     if (url.pathname === '/api/generate-trojan' && request.method === 'POST') {
       try {
         const body = await request.json();
-        const password = body.password || uuidv4().substring(0, 16);
-        const address = body.address || userDomain;
-        const port = body.port || 443;
-        const sni = body.sni || 'www.google.com';
-        const remark = body.remark || 'SaTurn-Trojan';
-        
-        const config = `trojan://${password}@${address}:${port}?security=tls&sni=${sni}&fp=chrome&type=ws&path=/ws&host=${address}#${encodeURIComponent(remark)}`;
-        
-        try {
-          await env.KV.put('user:' + password, JSON.stringify({
-            password, address, port, sni, remark, created: Date.now()
-          }));
-        } catch (e) {}
-        
-        return new Response(JSON.stringify({ config, password }), {
+        const config = await generateTrojan(body, userDomain, env);
+        return new Response(JSON.stringify(config), {
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       } catch (e) {
@@ -87,12 +50,11 @@ export default {
       }
     }
 
-    // API: Scan IPs
+    // ============ API: Scan IPs ============
     if (url.pathname === '/api/scan' && request.method === 'POST') {
       try {
         const body = await request.json();
-        const ports = body.ports || [443];
-        const results = await scanCFIPs(ports, env);
+        const results = await scanIPs(body, env);
         return new Response(JSON.stringify(results), {
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
@@ -103,7 +65,7 @@ export default {
       }
     }
 
-    // API: Get saved IPs
+    // ============ API: Get Saved IPs ============
     if (url.pathname === '/api/scanned-ips') {
       try {
         const { keys } = await env.KV.list({ prefix: 'scan:' });
@@ -123,7 +85,7 @@ export default {
       }
     }
 
-    // API: Clear scans
+    // ============ API: Clear Scans ============
     if (url.pathname === '/api/clear-scans' && request.method === 'POST') {
       try {
         const { keys } = await env.KV.list({ prefix: 'scan:' });
@@ -145,52 +107,215 @@ export default {
   }
 };
 
-// Handle CONNECT method for direct TCP tunneling
-function handleConnect(request) {
-  const url = new URL(request.url);
-  const [hostname, port] = url.hostname.split(':');
+// ============ VLESS Generator ============
+async function generateVLESS(body, userDomain, env) {
+  const {
+    remark = '',
+    address = '',
+    port = 443,
+    uuid = '',
+    sni = '',
+    fp = 'chrome',
+    alpn = '',
+    host = '',
+    path = ''
+  } = body;
   
-  // Create a TCP connection via Cloudflare
-  // Note: CF Workers can't do raw TCP, this is just a placeholder
-  return new Response('CONNECT method not fully supported on Workers', { status: 405 });
+  const configUUID = uuid || uuidv4();
+  const configRemark = remark || 'SaTurn-VLESS';
+  const configAddress = address || userDomain;
+  const configPort = parseInt(port) || 443;
+  const configSNI = sni || userDomain;
+  const configHost = host || userDomain;
+  const configPath = path || '/' + configUUID;
+  const configFingerprint = fp || 'chrome';
+  const configAlpn = alpn || '';
+  
+  // Build VLESS WS TLS config
+  let vlessLink = 'vless://' + configUUID + '@' + configAddress + ':' + configPort;
+  vlessLink += '?encryption=none';
+  vlessLink += '&security=tls';
+  vlessLink += '&sni=' + configSNI;
+  vlessLink += '&fp=' + configFingerprint;
+  vlessLink += '&type=ws';
+  vlessLink += '&path=' + encodeURIComponent(configPath);
+  vlessLink += '&host=' + configHost;
+  
+  if (configAlpn) {
+    vlessLink += '&alpn=' + encodeURIComponent(configAlpn);
+  }
+  
+  vlessLink += '#' + encodeURIComponent(configRemark);
+  
+  // Save to KV
+  try {
+    await env.KV.put('config:' + configUUID, JSON.stringify({
+      type: 'vless',
+      uuid: configUUID,
+      address: configAddress,
+      port: configPort,
+      sni: configSNI,
+      host: configHost,
+      path: configPath,
+      fp: configFingerprint,
+      alpn: configAlpn,
+      remark: configRemark,
+      created: Date.now()
+    }));
+  } catch (e) {}
+  
+  return {
+    config: vlessLink,
+    uuid: configUUID,
+    remark: configRemark,
+    address: configAddress,
+    port: configPort,
+    sni: configSNI,
+    host: configHost,
+    path: configPath
+  };
 }
 
-// CF IP Scanner
-async function scanCFIPs(ports, env) {
-  const cfRanges = [
-    '104.16.0.0', '104.24.0.0', '172.64.0.0',
-    '131.0.72.0', '104.26.0.0', '104.20.0.0',
-    '104.31.0.0', '104.21.0.0', '104.17.0.0'
-  ];
+// ============ Trojan Generator ============
+async function generateTrojan(body, userDomain, env) {
+  const {
+    remark = '',
+    address = '',
+    port = 443,
+    password = '',
+    sni = '',
+    fp = 'chrome',
+    alpn = '',
+    host = '',
+    path = ''
+  } = body;
+  
+  const configPassword = password || uuidv4().substring(0, 16);
+  const configRemark = remark || 'SaTurn-Trojan';
+  const configAddress = address || userDomain;
+  const configPort = parseInt(port) || 443;
+  const configSNI = sni || userDomain;
+  const configHost = host || userDomain;
+  const configPath = path || '/' + configPassword;
+  const configFingerprint = fp || 'chrome';
+  const configAlpn = alpn || '';
+  
+  // Build Trojan WS TLS config
+  let trojanLink = 'trojan://' + configPassword + '@' + configAddress + ':' + configPort;
+  trojanLink += '?security=tls';
+  trojanLink += '&sni=' + configSNI;
+  trojanLink += '&fp=' + configFingerprint;
+  trojanLink += '&type=ws';
+  trojanLink += '&path=' + encodeURIComponent(configPath);
+  trojanLink += '&host=' + configHost;
+  
+  if (configAlpn) {
+    trojanLink += '&alpn=' + encodeURIComponent(configAlpn);
+  }
+  
+  trojanLink += '#' + encodeURIComponent(configRemark);
+  
+  // Save to KV
+  try {
+    await env.KV.put('config:' + configPassword, JSON.stringify({
+      type: 'trojan',
+      password: configPassword,
+      address: configAddress,
+      port: configPort,
+      sni: configSNI,
+      host: configHost,
+      path: configPath,
+      fp: configFingerprint,
+      alpn: configAlpn,
+      remark: configRemark,
+      created: Date.now()
+    }));
+  } catch (e) {}
+  
+  return {
+    config: trojanLink,
+    password: configPassword,
+    remark: configRemark,
+    address: configAddress,
+    port: configPort,
+    sni: configSNI,
+    host: configHost,
+    path: configPath
+  };
+}
+
+// ============ IP Scanner ============
+async function scanIPs(body, env) {
+  const ports = body.ports || [443];
+  const range = body.range || 'cf-all';
   
   let ipList = [];
-  for (let i = 0; i < 25; i++) {
-    const base = cfRanges[Math.floor(Math.random() * cfRanges.length)];
+  
+  // Cloudflare IP ranges
+  const cfRanges = {
+    'cf-all': [
+      '104.16.0.0', '104.17.0.0', '104.18.0.0', '104.19.0.0',
+      '104.20.0.0', '104.21.0.0', '104.22.0.0', '104.24.0.0',
+      '104.26.0.0', '104.27.0.0', '104.28.0.0', '104.30.0.0',
+      '104.31.0.0', '172.64.0.0', '131.0.72.0'
+    ],
+    'cf-popular': [
+      '104.21.0.0', '104.16.0.0', '172.64.0.0',
+      '104.26.0.0', '104.24.0.0', '104.20.0.0'
+    ],
+    'cf-iran': [
+      '104.21.0.0', '104.16.0.0', '172.64.0.0',
+      '104.26.0.0', '104.17.0.0'
+    ],
+    'gcore': [
+      '92.223.0.0', '92.38.0.0', '93.123.0.0'
+    ],
+    'fastly': [
+      '151.101.0.0', '151.101.128.0'
+    ]
+  };
+  
+  const selectedRange = cfRanges[range] || cfRanges['cf-all'];
+  
+  for (let i = 0; i < 30; i++) {
+    const base = selectedRange[Math.floor(Math.random() * selectedRange.length)];
     const parts = base.split('.');
     parts[3] = Math.floor(Math.random() * 254) + 1;
     ipList.push(parts.join('.'));
   }
   
   const results = [];
+  
   for (const ip of ipList) {
     for (const port of ports) {
       try {
         const start = Date.now();
-        const response = await fetch(`https://${ip}:${port}`, {
-          signal: AbortSignal.timeout(2000),
-          headers: { 'Host': 'speed.cloudflare.com', 'User-Agent': 'Mozilla/5.0' }
+        const response = await fetch('https://' + ip + ':' + port, {
+          signal: AbortSignal.timeout(2500),
+          headers: {
+            'Host': 'speed.cloudflare.com',
+            'User-Agent': 'Mozilla/5.0'
+          }
         });
+        
         const latency = Date.now() - start;
         
         if (latency < 1000) {
+          const cfRay = response.headers.get('cf-ray') || '';
           const ipData = {
-            ip, port, latency,
-            datacenter: (response.headers.get('cf-ray') || '').split('-')[1] || 'Unknown',
+            ip: ip,
+            port: port,
+            latency: latency,
+            datacenter: cfRay.split('-')[1] || 'Unknown',
             clean: latency < 250,
             status: 'open',
             scannedAt: Date.now()
           };
-          try { await env.KV.put('scan:' + ip + ':' + port, JSON.stringify(ipData)); } catch (e) {}
+          
+          try {
+            await env.KV.put('scan:' + ip + ':' + port, JSON.stringify(ipData));
+          } catch (e) {}
+          
           results.push(ipData);
         }
       } catch (e) {}
@@ -198,5 +323,12 @@ async function scanCFIPs(ports, env) {
   }
   
   results.sort((a, b) => a.latency - b.latency);
-  return { status: 'done', results, total: results.length, clean: results.filter(r => r.clean).length };
+  
+  return {
+    status: 'done',
+    results: results,
+    total: results.length,
+    clean: results.filter(r => r.clean).length,
+    bestLatency: results.length > 0 ? results[0].latency : null
+  };
 }
