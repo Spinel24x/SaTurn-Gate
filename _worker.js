@@ -10,6 +10,12 @@ export default {
     const url = new URL(request.url);
     const userDomain = url.hostname;
     
+    // ========== WebSocket Proxy ==========
+    const upgradeHeader = request.headers.get('Upgrade');
+    if (upgradeHeader && upgradeHeader.toLowerCase() === 'websocket') {
+      return handleWebSocket(request, url, env);
+    }
+    
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -102,10 +108,100 @@ export default {
       }
     }
 
-    // Serve static files
+    // Serve static files (panel)
     return env.ASSETS.fetch(request);
   }
 };
+
+// ============ WebSocket Proxy Handler ============
+async function handleWebSocket(request, url, env) {
+  // Create WebSocket pair
+  const webSocketPair = new WebSocketPair();
+  const [client, server] = Object.values(webSocketPair);
+  
+  // Accept the WebSocket connection
+  server.accept();
+  
+  // Get the path from URL - this is the UUID/password
+  const path = url.pathname;
+  
+  // Find matching config in KV
+  let targetConfig = null;
+  try {
+    const { keys } = await env.KV.list({ prefix: 'config:' });
+    for (const key of keys) {
+      const config = await env.KV.get(key.name, 'json');
+      if (config && (config.path === path || config.uuid === path.replace('/', '') || config.password === path.replace('/', ''))) {
+        targetConfig = config;
+        break;
+      }
+    }
+  } catch (e) {}
+  
+  // Handle WebSocket messages - proxy to internet
+  server.addEventListener('message', async (event) => {
+    try {
+      const data = event.data;
+      
+      // Try to parse as HTTP request for proxying
+      let targetUrl;
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed.url) {
+          targetUrl = parsed.url;
+        }
+      } catch (e) {
+        // Raw data - just echo back or try to proxy
+        targetUrl = data;
+      }
+      
+      if (targetUrl && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://'))) {
+        // Proxy the request
+        const response = await fetch(targetUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0',
+            'Accept': '*/*'
+          }
+        });
+        
+        const responseBody = await response.text();
+        server.send(JSON.stringify({
+          status: response.status,
+          headers: Object.fromEntries(response.headers),
+          body: responseBody
+        }));
+      } else {
+        // Echo back for testing
+        server.send(JSON.stringify({
+          status: 'connected',
+          message: 'SaTurn Gate Proxy Active',
+          path: path,
+          timestamp: Date.now()
+        }));
+      }
+    } catch (e) {
+      server.send(JSON.stringify({
+        error: e.message
+      }));
+    }
+  });
+  
+  server.addEventListener('close', () => {
+    // Cleanup
+  });
+  
+  server.addEventListener('error', (e) => {
+    // Handle error
+  });
+  
+  return new Response(null, {
+    status: 101,
+    webSocket: client,
+    headers: {
+      'Access-Control-Allow-Origin': '*'
+    }
+  });
+}
 
 // ============ VLESS Generator ============
 async function generateVLESS(body, userDomain, env) {
@@ -131,7 +227,6 @@ async function generateVLESS(body, userDomain, env) {
   const configFingerprint = fp || 'chrome';
   const configAlpn = alpn || '';
   
-  // Build VLESS WS TLS config
   let vlessLink = 'vless://' + configUUID + '@' + configAddress + ':' + configPort;
   vlessLink += '?encryption=none';
   vlessLink += '&security=tls';
@@ -147,7 +242,6 @@ async function generateVLESS(body, userDomain, env) {
   
   vlessLink += '#' + encodeURIComponent(configRemark);
   
-  // Save to KV
   try {
     await env.KV.put('config:' + configUUID, JSON.stringify({
       type: 'vless',
@@ -200,7 +294,6 @@ async function generateTrojan(body, userDomain, env) {
   const configFingerprint = fp || 'chrome';
   const configAlpn = alpn || '';
   
-  // Build Trojan WS TLS config
   let trojanLink = 'trojan://' + configPassword + '@' + configAddress + ':' + configPort;
   trojanLink += '?security=tls';
   trojanLink += '&sni=' + configSNI;
@@ -215,7 +308,6 @@ async function generateTrojan(body, userDomain, env) {
   
   trojanLink += '#' + encodeURIComponent(configRemark);
   
-  // Save to KV
   try {
     await env.KV.put('config:' + configPassword, JSON.stringify({
       type: 'trojan',
@@ -251,7 +343,6 @@ async function scanIPs(body, env) {
   
   let ipList = [];
   
-  // Cloudflare IP ranges
   const cfRanges = {
     'cf-all': [
       '104.16.0.0', '104.17.0.0', '104.18.0.0', '104.19.0.0',
