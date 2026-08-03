@@ -5,15 +5,42 @@ const uuidv4 = () => {
   });
 };
 
+// CF IP ranges with good performance
+const CF_IP_RANGES = [
+  { subnet: '104.21.0.0', mask: 16, name: 'Cloudflare Main' },
+  { subnet: '104.16.0.0', mask: 13, name: 'Cloudflare CDN 1' },
+  { subnet: '104.24.0.0', mask: 14, name: 'Cloudflare CDN 2' },
+  { subnet: '172.64.0.0', mask: 14, name: 'Cloudflare CDN 3' },
+  { subnet: '104.26.0.0', mask: 15, name: 'Cloudflare CDN 4' },
+  { subnet: '104.20.0.0', mask: 14, name: 'Cloudflare CDN 5' },
+  { subnet: '104.31.0.0', mask: 16, name: 'Cloudflare CDN 6' },
+  { subnet: '104.17.0.0', mask: 16, name: 'Cloudflare CDN 7' },
+  { subnet: '104.18.0.0', mask: 16, name: 'Cloudflare CDN 8' },
+  { subnet: '104.19.0.0', mask: 16, name: 'Cloudflare CDN 9' },
+  { subnet: '104.22.0.0', mask: 15, name: 'Cloudflare CDN 10' },
+  { subnet: '104.27.0.0', mask: 16, name: 'Cloudflare CDN 11' },
+  { subnet: '104.28.0.0', mask: 15, name: 'Cloudflare CDN 12' },
+  { subnet: '104.30.0.0', mask: 16, name: 'Cloudflare CDN 13' },
+  { subnet: '141.101.0.0', mask: 16, name: 'Cloudflare Edge' },
+  { subnet: '188.114.0.0', mask: 15, name: 'Cloudflare EU' },
+  { subnet: '162.158.0.0', mask: 15, name: 'Cloudflare US' },
+  { subnet: '173.245.0.0', mask: 16, name: 'Cloudflare Legacy' },
+  { subnet: '190.93.0.0', mask: 16, name: 'Cloudflare LATAM' },
+  { subnet: '197.234.0.0', mask: 16, name: 'Cloudflare AFR' }
+];
+
+// Valid ports for Cloudflare
+const VALID_PORTS = [443, 8443, 2053, 2083, 2087, 2096];
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const userDomain = url.hostname;
     
-    // ========== WebSocket Proxy ==========
+    // ========== WebSocket Proxy Handler ==========
     const upgradeHeader = request.headers.get('Upgrade');
     if (upgradeHeader && upgradeHeader.toLowerCase() === 'websocket') {
-      return handleWebSocket(request, url, env);
+      return handleWSSProxy(request, url, env);
     }
     
     const corsHeaders = {
@@ -24,6 +51,36 @@ export default {
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
+    }
+
+    // ============ API: Professional Scan ============
+    if (url.pathname === '/api/scan' && request.method === 'POST') {
+      try {
+        const body = await request.json();
+        const results = await professionalScan(body, env, ctx);
+        return new Response(JSON.stringify(results), {
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message, results: [] }), {
+          status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      }
+    }
+
+    // ============ API: Quick Test IP ============
+    if (url.pathname === '/api/test-ip' && request.method === 'POST') {
+      try {
+        const body = await request.json();
+        const result = await testSingleIP(body.ip, body.port || 443);
+        return new Response(JSON.stringify(result), {
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message }), {
+          status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      }
     }
 
     // ============ API: Generate VLESS ============
@@ -56,23 +113,8 @@ export default {
       }
     }
 
-    // ============ API: Scan IPs ============
-    if (url.pathname === '/api/scan' && request.method === 'POST') {
-      try {
-        const body = await request.json();
-        const results = await scanIPs(body, env);
-        return new Response(JSON.stringify(results), {
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
-      } catch (e) {
-        return new Response(JSON.stringify({ error: e.message }), {
-          status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
-      }
-    }
-
     // ============ API: Get Saved IPs ============
-    if (url.pathname === '/api/scanned-ips') {
+    if (url.pathname === '/api/saved-ips') {
       try {
         const { keys } = await env.KV.list({ prefix: 'scan:' });
         const ips = [];
@@ -81,7 +123,7 @@ export default {
           if (data) ips.push(data);
         }
         ips.sort((a, b) => (a.latency || 999) - (b.latency || 999));
-        return new Response(JSON.stringify(ips.slice(0, 50)), {
+        return new Response(JSON.stringify(ips.slice(0, 100)), {
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       } catch (e) {
@@ -91,8 +133,8 @@ export default {
       }
     }
 
-    // ============ API: Clear Scans ============
-    if (url.pathname === '/api/clear-scans' && request.method === 'POST') {
+    // ============ API: Clear ============
+    if (url.pathname === '/api/clear' && request.method === 'POST') {
       try {
         const { keys } = await env.KV.list({ prefix: 'scan:' });
         for (const key of keys) {
@@ -108,99 +150,217 @@ export default {
       }
     }
 
-    // Serve static files (panel)
+    // Serve panel
     return env.ASSETS.fetch(request);
   }
 };
 
-// ============ WebSocket Proxy Handler ============
-async function handleWebSocket(request, url, env) {
-  // Create WebSocket pair
+// ============ WebSocket Proxy ============
+async function handleWSSProxy(request, url, env) {
   const webSocketPair = new WebSocketPair();
   const [client, server] = Object.values(webSocketPair);
   
-  // Accept the WebSocket connection
   server.accept();
   
-  // Get the path from URL - this is the UUID/password
   const path = url.pathname;
   
-  // Find matching config in KV
-  let targetConfig = null;
-  try {
-    const { keys } = await env.KV.list({ prefix: 'config:' });
-    for (const key of keys) {
-      const config = await env.KV.get(key.name, 'json');
-      if (config && (config.path === path || config.uuid === path.replace('/', '') || config.password === path.replace('/', ''))) {
-        targetConfig = config;
-        break;
-      }
-    }
-  } catch (e) {}
-  
-  // Handle WebSocket messages - proxy to internet
   server.addEventListener('message', async (event) => {
     try {
-      const data = event.data;
-      
-      // Try to parse as HTTP request for proxying
       let targetUrl;
+      let requestData;
+      
       try {
-        const parsed = JSON.parse(data);
-        if (parsed.url) {
-          targetUrl = parsed.url;
-        }
+        requestData = JSON.parse(event.data);
+        targetUrl = requestData.url || requestData.target;
       } catch (e) {
-        // Raw data - just echo back or try to proxy
-        targetUrl = data;
+        targetUrl = event.data;
       }
       
       if (targetUrl && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://'))) {
-        // Proxy the request
-        const response = await fetch(targetUrl, {
+        const fetchOptions = {
           headers: {
-            'User-Agent': 'Mozilla/5.0',
-            'Accept': '*/*'
+            'User-Agent': requestData?.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': requestData?.accept || 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': requestData?.acceptLanguage || 'en-US,en;q=0.5'
           }
-        });
+        };
         
-        const responseBody = await response.text();
+        if (requestData?.method) fetchOptions.method = requestData.method;
+        if (requestData?.body) fetchOptions.body = requestData.body;
+        if (requestData?.headers) fetchOptions.headers = { ...fetchOptions.headers, ...requestData.headers };
+        
+        const response = await fetch(targetUrl, fetchOptions);
+        const body = await response.text();
+        
         server.send(JSON.stringify({
           status: response.status,
+          statusText: response.statusText,
           headers: Object.fromEntries(response.headers),
-          body: responseBody
+          body: body,
+          url: targetUrl
         }));
       } else {
-        // Echo back for testing
+        // Echo response for connectivity test
         server.send(JSON.stringify({
           status: 'connected',
-          message: 'SaTurn Gate Proxy Active',
+          message: 'SaTurn Gateway Active',
           path: path,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          ip: request.headers.get('CF-Connecting-IP')
         }));
       }
     } catch (e) {
       server.send(JSON.stringify({
+        status: 'error',
         error: e.message
       }));
     }
   });
   
-  server.addEventListener('close', () => {
-    // Cleanup
-  });
-  
-  server.addEventListener('error', (e) => {
-    // Handle error
-  });
+  server.addEventListener('close', () => {});
+  server.addEventListener('error', (e) => {});
   
   return new Response(null, {
     status: 101,
     webSocket: client,
-    headers: {
-      'Access-Control-Allow-Origin': '*'
-    }
+    headers: { 'Access-Control-Allow-Origin': '*' }
   });
+}
+
+// ============ Professional Scanner ============
+async function professionalScan(body, env, ctx) {
+  const ports = body.ports || [443];
+  const count = body.count || 50;
+  const timeout = body.timeout || 3000;
+  
+  // Generate IPs
+  const ipList = [];
+  for (let i = 0; i < count; i++) {
+    const range = CF_IP_RANGES[Math.floor(Math.random() * CF_IP_RANGES.length)];
+    const parts = range.subnet.split('.');
+    const hostBits = 32 - range.mask;
+    const maxHost = Math.pow(2, hostBits) - 2;
+    
+    // Generate random IP within range
+    let offset = Math.floor(Math.random() * maxHost) + 1;
+    parts[3] = (parseInt(parts[3]) + (offset % 256)) % 256;
+    if (offset > 256) {
+      parts[2] = (parseInt(parts[2]) + Math.floor(offset / 256)) % 256;
+    }
+    
+    ipList.push({
+      ip: parts.join('.'),
+      range: range.name
+    });
+  }
+  
+  // Scan with concurrency
+  const results = [];
+  const scanPromises = [];
+  
+  for (const { ip, range } of ipList) {
+    for (const port of ports) {
+      scanPromises.push(
+        scanSingleIP(ip, port, timeout, range, env)
+          .then(result => {
+            if (result && result.open) {
+              results.push(result);
+            }
+          })
+          .catch(() => {})
+      );
+    }
+  }
+  
+  await Promise.allSettled(scanPromises);
+  
+  // Sort by latency
+  results.sort((a, b) => a.latency - b.latency);
+  
+  // Mark clean IPs (low latency + specific conditions)
+  const cleanResults = results.map(r => ({
+    ...r,
+    clean: r.latency < 200 && r.httpStatus === 200,
+    veryClean: r.latency < 100 && r.httpStatus === 200 && r.cfRay
+  }));
+  
+  return {
+    status: 'done',
+    results: cleanResults,
+    total: cleanResults.length,
+    clean: cleanResults.filter(r => r.clean).length,
+    veryClean: cleanResults.filter(r => r.veryClean).length,
+    bestLatency: cleanResults.length > 0 ? cleanResults[0].latency : null,
+    scannedAt: Date.now()
+  };
+}
+
+async function scanSingleIP(ip, port, timeout, range, env) {
+  try {
+    const start = Date.now();
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    const response = await fetch('https://' + ip + ':' + port, {
+      signal: controller.signal,
+      headers: {
+        'Host': 'speed.cloudflare.com',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Cache-Control': 'no-cache'
+      }
+    });
+    
+    clearTimeout(timeoutId);
+    
+    const latency = Date.now() - start;
+    const cfRay = response.headers.get('cf-ray') || '';
+    const cfCacheStatus = response.headers.get('cf-cache-status') || '';
+    const server = response.headers.get('server') || '';
+    const contentType = response.headers.get('content-type') || '';
+    
+    const result = {
+      ip,
+      port,
+      latency,
+      range,
+      httpStatus: response.status,
+      cfRay,
+      cfCacheStatus,
+      server,
+      contentType,
+      datacenter: cfRay.split('-')[1] || 'Unknown',
+      open: response.status >= 200 && response.status < 500,
+      scannedAt: Date.now()
+    };
+    
+    // Save best results to KV
+    if (result.open && latency < 300) {
+      try {
+        await env.KV.put('scan:' + ip + ':' + port, JSON.stringify(result), {
+          expirationTtl: 3600
+        });
+      } catch (e) {}
+    }
+    
+    return result;
+  } catch (e) {
+    return {
+      ip,
+      port,
+      open: false,
+      error: e.message,
+      scannedAt: Date.now()
+    };
+  }
+}
+
+async function testSingleIP(ip, port) {
+  return await scanSingleIP(ip, port, 5000, 'Manual Test', null);
 }
 
 // ============ VLESS Generator ============
@@ -333,93 +493,5 @@ async function generateTrojan(body, userDomain, env) {
     sni: configSNI,
     host: configHost,
     path: configPath
-  };
-}
-
-// ============ IP Scanner ============
-async function scanIPs(body, env) {
-  const ports = body.ports || [443];
-  const range = body.range || 'cf-all';
-  
-  let ipList = [];
-  
-  const cfRanges = {
-    'cf-all': [
-      '104.16.0.0', '104.17.0.0', '104.18.0.0', '104.19.0.0',
-      '104.20.0.0', '104.21.0.0', '104.22.0.0', '104.24.0.0',
-      '104.26.0.0', '104.27.0.0', '104.28.0.0', '104.30.0.0',
-      '104.31.0.0', '172.64.0.0', '131.0.72.0'
-    ],
-    'cf-popular': [
-      '104.21.0.0', '104.16.0.0', '172.64.0.0',
-      '104.26.0.0', '104.24.0.0', '104.20.0.0'
-    ],
-    'cf-iran': [
-      '104.21.0.0', '104.16.0.0', '172.64.0.0',
-      '104.26.0.0', '104.17.0.0'
-    ],
-    'gcore': [
-      '92.223.0.0', '92.38.0.0', '93.123.0.0'
-    ],
-    'fastly': [
-      '151.101.0.0', '151.101.128.0'
-    ]
-  };
-  
-  const selectedRange = cfRanges[range] || cfRanges['cf-all'];
-  
-  for (let i = 0; i < 30; i++) {
-    const base = selectedRange[Math.floor(Math.random() * selectedRange.length)];
-    const parts = base.split('.');
-    parts[3] = Math.floor(Math.random() * 254) + 1;
-    ipList.push(parts.join('.'));
-  }
-  
-  const results = [];
-  
-  for (const ip of ipList) {
-    for (const port of ports) {
-      try {
-        const start = Date.now();
-        const response = await fetch('https://' + ip + ':' + port, {
-          signal: AbortSignal.timeout(2500),
-          headers: {
-            'Host': 'speed.cloudflare.com',
-            'User-Agent': 'Mozilla/5.0'
-          }
-        });
-        
-        const latency = Date.now() - start;
-        
-        if (latency < 1000) {
-          const cfRay = response.headers.get('cf-ray') || '';
-          const ipData = {
-            ip: ip,
-            port: port,
-            latency: latency,
-            datacenter: cfRay.split('-')[1] || 'Unknown',
-            clean: latency < 250,
-            status: 'open',
-            scannedAt: Date.now()
-          };
-          
-          try {
-            await env.KV.put('scan:' + ip + ':' + port, JSON.stringify(ipData));
-          } catch (e) {}
-          
-          results.push(ipData);
-        }
-      } catch (e) {}
-    }
-  }
-  
-  results.sort((a, b) => a.latency - b.latency);
-  
-  return {
-    status: 'done',
-    results: results,
-    total: results.length,
-    clean: results.filter(r => r.clean).length,
-    bestLatency: results.length > 0 ? results[0].latency : null
   };
 }
